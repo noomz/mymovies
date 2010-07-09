@@ -1,0 +1,209 @@
+<?php
+/**
+ * Implementation of hook_perm().
+ */
+function mymovies_perm() {
+  return array('search movies', 'create movies list', 'view other movies list');
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function mymovies_menu() {
+  $items['movies/search'] = array(
+    'title' => t('Search Movies'),
+    'page callback' => 'mymovies_search_page',
+    'access arguments' => array('search movies'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['user/%/movies/watched'] = array(
+    'title' => t('Watched Movies'),
+    'page callback' => 'mymovies_movie_list',
+    'page arguments' => array(1, 'watched'),
+    'access arguments' => array('view other movies list'),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['user/%/movies/owned'] = array(
+    'title' => t('Owned Movies'),
+    'page callback' => 'mymovies_movie_list',
+    'page arguments' => array(1, 'owned'),
+    'access arguments' => array('view other movies list'),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['movies/flag/watch/%'] = array(
+    'title' => 'Watched',
+    'page callback' => 'mymovies_flag_watch',
+    'page arguments' => array(3),
+    'access arguments' => array('create movies list'),
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['movies/flag/own/%'] = array(
+    'title' => 'Owned',
+    'page callback' => 'mymovies_flag_own',
+    'page arguments' => array(3),
+    'access arguments' => array('create movies list'),
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['admin/settings/mymovies'] = array(
+    'title' => t('My Movies List'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mymovies_admin_form'),
+    'access arguments' => array('administer nodes'),
+    'file' => 'mymovies.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_themes().
+ */
+function mymovies_theme($existing, $type, $theme, $path) {
+  return array(
+    'movie_list' => array(
+      'variables' => array('data' => array()),
+    ),
+  );
+}
+
+function mymovies_search_page() {
+  $title = $_POST['name'];
+  $result = array();
+  if ($title) {
+    if ($result = cache_get('tmdb:'. md5($title))) {
+      $result = $result->data;
+    }
+    else {
+      module_load_include('php', 'mymovies', 'tmdb/TMDb');
+      $tmdb = new TMDb(variable_get('mymovies_tmdb_api', ''));
+      $result = $tmdb->searchMovie($title);
+      $result = json_decode($result);
+      cache_set('tmdb:'. md5($title), $result, 'cache', 86400);
+    }
+  }
+
+  // Keep cache
+  foreach ($result as $movie) {
+    if (!cache_get('tmdbid:'. $movie->id)) {
+      cache_set('tmdbid:'. $movie->id, $movie, 'cache', 86400);
+    }
+  }
+
+  $form_html = drupal_get_form('mymovies_search_form');
+  $output = $form_html . theme('movie_list', $result);
+
+  return $output;
+}
+
+function mymovies_search_form($form_state) {
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Movie name'),
+    '#default_value' => $form_state['values']['name'],
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Search',
+  );
+
+  return $form;
+}
+
+function mymovies_search_form_submit($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+}
+
+function theme_movie_list($data) {
+  global $user;
+  drupal_add_css(drupal_get_path('module', 'mymovies') .'/mymovies.css');
+  drupal_add_js(drupal_get_path('module', 'mymovies') .'/mymovies.js');
+
+  $output = '<ol class="movie-list">';
+  foreach ($data as $movie) {
+    if (empty($movie->id)) {
+      continue;
+    }
+    $result = db_query('SELECT watched, owned FROM {mymovies_flag} WHERE uid=%d AND mid=%d', $user->uid, $movie->id);
+    if ($result) {
+      $row = db_fetch_array($result);
+    }
+    $watched = $row['watched'] ? 'watched' : '';
+    $owned = $row['owned'] ? 'owned' : '';
+
+    $output .= '<li class="movie-item">'.
+               '<div class="movie-image-wrapper">'.
+               '<img class="movie-image" src="'. $movie->posters[3]->image->url .'" />'.
+               '<br style="clear:left" /></div>'.
+               '<div class="movie-detail">'.
+               '<span class="movie-title">'.
+               l($movie->name .' ('. substr($movie->released, 0, 4) .')', $movie->url) .
+               '</span>'.
+               '<span class="movie-overview">'.
+               truncate_utf8($movie->overview, 200, TRUE, TRUE) .
+               '</span>';
+    if (user_access('create movies list')) {
+      $output .= '<ul class="movie-link">'.
+               ' <li class="movie-toggle-watch">'. l(($watched ? 'Unwatched' : 'Watched'), 'movies/flag/watch/'. $movie->id, array('attributes' => array('class' => 'movie-flag '. $watched))) .'</li>'.
+               ' <li class="movie-toggle-own">'. l(($owned ? 'Unowned' : 'Owned'), 'movies/flag/own/'. $movie->id, array('attributes' => array('class' => 'movie-flag '. $owned))) .'</li>'.
+               '</ul>';
+    }
+    $output .= '</div>'.
+               '<div style="clear:left"></div>'.
+               '</li>';
+  }
+  $output .= '</ol>';
+
+  return $output;
+}
+
+function mymovies_flag_watch($mid) {
+  global $user;
+  db_query('INSERT INTO {mymovies_flag} (uid, mid, watched) VALUES (%d,%d,1) ON DUPLICATE KEY UPDATE watched=(watched-1)*-1', $user->uid, $mid, 1);
+  return drupal_json(array('status' => 'ok'));
+}
+
+function mymovies_flag_own($mid) {
+  global $user;
+  db_query('INSERT INTO {mymovies_flag} (uid, mid, owned) VALUES (%d,%d,1) ON DUPLICATE KEY UPDATE owned=(owned-1)*-1', $user->uid, $mid, 1);
+  return drupal_json(array('status' => 'ok'));
+}
+
+function mymovies_movie_list($uid, $type) {
+  module_load_include('php', 'mymovies', 'tmdb/TMDb');
+  $tmdb = new TMDb(variable_get('mymovies_tmdb_api', ''));
+
+  $result = db_query('SELECT mid FROM {mymovies_flag} WHERE uid=%d AND %s=1', $uid, $type);
+  $data = array();
+  while ($row = db_fetch_object($result)) {
+    try {
+      if ($movie = cache_get('tmdbid:'. $row->mid)) {
+        $data[] = $movie->data;
+      }
+      else {
+        $movie = $tmdb->getMovie($row->mid);
+        $movie = json_decode($movie);
+        $data[] = $movie[0];
+        cache_set('tmdbid:'. $row->mid, $movie[0], 'cache', 86400);
+      }
+    }
+    catch (Exception $e) {
+      drupal_set_message($e->getMessage());
+    }
+  }
+
+  return theme('movie_list', $data);
+}
+
+function mymovies_block($op = 'list', $delta = 0, $edit = array()) {
+  if ($block = 'list') {
+  }
+
+  return $block;
+}

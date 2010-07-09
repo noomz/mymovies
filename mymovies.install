@@ -1,0 +1,44 @@
+<?php
+
+function mymovies_install() {
+  drupal_install_schema('mymovies');
+}
+
+function mymovies_schema() {
+  $schema = array();
+
+  $schema['mymovies_flag'] = array(
+    'fields' => array(
+      'uid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'mid' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'watched' => array(
+        'type' => 'int',
+        'size' => 'small',
+        'default' => 0,
+      ),
+      'owned' => array(
+        'type' => 'int',
+        'size' => 'small',
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('uid', 'mid'),
+    'indexes' => array('myvideos_flag_key' => array('uid', 'mid')),
+  );
+
+  return $schema;
+}
+
+function mymovies_uninstall() {
+  drupal_uninstall_schema('mymovies');
+}

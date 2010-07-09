@@ -1,0 +1,33 @@
+.movie-list {
+}
+.movie-item {
+    background: none;
+    margin-bottom: 10px;
+    clear: left;
+}
+.movie-image-wrapper {
+    float: left;
+    width: 92px;
+    min-height: 138px;
+}
+.movie-image {
+    vertical-align: top;
+    display: block;
+    float: left;
+}
+.movie-detail {
+    margin-left: 10px;
+    float: left;
+    width: 500px;
+}
+.movie-title, .movie-overview {
+    display: block;
+    width: 100%;
+}
+.movie-link {
+    list-style: none;
+}
+.movie-link li {
+    background: none;
+    float: left;
+}
